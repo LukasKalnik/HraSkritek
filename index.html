@@ -56,7 +56,22 @@ body {
   display: grid; place-items: center; cursor: pointer;
 }
 .icon-btn svg { width: 22px; height: 22px; fill: currentColor; }
-.icon-btn:focus-visible, .btn:focus-visible { outline: 3px solid var(--glow); outline-offset: 3px; }
+.duck-btn {
+  position: absolute;
+  left: max(16px, env(safe-area-inset-left, 0px));
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  width: 76px; height: 76px; border-radius: 50%;
+  border: 2px solid rgba(247, 241, 227, .35);
+  background: var(--panel); color: var(--paper);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0;
+  font-family: var(--display); font-weight: 800; font-size: 13px; letter-spacing: .03em;
+  cursor: pointer; touch-action: none;
+  -webkit-touch-callout: none;
+}
+.duck-btn svg { width: 30px; height: 30px; fill: currentColor; }
+.duck-btn.on { background: var(--glow); color: var(--ink); border-color: var(--glow); }
+@media (pointer: fine) { .duck-btn { width: 64px; height: 64px; font-size: 12px; } .duck-btn svg { width: 24px; height: 24px; } }
+.icon-btn:focus-visible, .btn:focus-visible, .duck-btn:focus-visible { outline: 3px solid var(--glow); outline-offset: 3px; }
 
 .overlay {
   position: absolute; inset: 0;
@@ -121,15 +136,20 @@ body {
     </div>
   </div>
 
+  <button class="duck-btn" id="duckBtn" type="button" aria-label="Podlézt" hidden>
+    <svg viewBox="0 0 24 24"><path d="M12 17.5l-7-7 1.8-1.8 5.2 5.2 5.2-5.2 1.8 1.8z"/><path d="M12 11.5l-7-7 1.8-1.8L12 7.9l5.2-5.2L19 4.5z" opacity=".55"/></svg>
+    Podlez
+  </button>
+
   <div class="overlay" id="menu">
     <div class="card">
       <h1>Skřítkův skok</h1>
-      <p>Skřítek Bukvice spěchá večerním lesem domů. Pomoz mu přeskočit pařezy, kameny a muchomůrky a cestou sbírej borůvky.</p>
+      <p>Skřítek Bukvice spěchá večerním lesem domů. Pomoz mu přeskočit pařezy a muchomůrky, podlézt pavučiny a cestou sbírej borůvky.</p>
       <div class="howto">
         <b>Ťukni</b><span>nebo zmáčkni mezerník a skřítek vyskočí</span>
         <b>Podrž</b><span>prst déle a skok bude vyšší</span>
         <b>2× ťuk</b><span>ve vzduchu udělá dvojskok</span>
-        <b>Netopýr</b><span>létá nízko i vysoko. Pod vysokým jen proběhni.</span>
+        <b>Podlez</b><span>drž tlačítko vlevo dole nebo šipku dolů. Pavučinu jinak neprojdeš.</span>
       </div>
       <button class="btn" id="startBtn" type="button">Hrát</button>
       <p class="hint" id="bestHint">Nejlepší výkon: 0</p>
@@ -202,7 +222,8 @@ body {
     dbl: () => tone(560, 1100, 0.14, 'square', 0.05),
     berry: () => { tone(880, 1320, 0.08, 'triangle', 0.1); tone(1320, 1760, 0.1, 'triangle', 0.08, 0.06); },
     hit: () => { tone(300, 60, 0.4, 'sawtooth', 0.12); },
-    land: () => tone(140, 90, 0.05, 'sine', 0.06)
+    land: () => tone(140, 90, 0.05, 'sine', 0.06),
+    duck: () => tone(420, 180, 0.12, 'triangle', 0.06)
   };
   function drawMuteIcon() {
     ui.muteBtn.setAttribute('aria-label', muted ? 'Zapnout zvuk' : 'Vypnout zvuk');
@@ -231,12 +252,14 @@ body {
   const stars = Array.from({ length: 70 }, (_, i) => ({ x: hash(i), y: hash(i + 99) * 0.55, r: 0.4 + hash(i + 7) * 1.1, p: hash(i + 3) * 6 }));
 
   // ---------- game state ----------
-  const G = 2600, JV = 680, JV2 = 600, PX = 74, PW = 26, PH = 44;
+  const G = 2600, JV = 680, JV2 = 600, PX = 104, PW = 26, PH = 44, PH_DUCK = 24;
   let state = 'menu';
+  let duckHeld = false;
   let p, obstacles, berriesArr, particles, dist, speed, spawnIn, collected, shake, deadT, time, holding;
 
   function reset() {
-    p = { y: 0, vy: 0, ground: true, jumps: 1, hold: 0, coyote: 0, buf: 0, rot: 0, dead: false };
+    p = { y: 0, vy: 0, ground: true, jumps: 1, hold: 0, coyote: 0, buf: 0, rot: 0, dead: false, duck: false };
+    duckHeld = false; setDuckBtn(false);
     obstacles = []; berriesArr = []; particles = [];
     dist = 0; speed = 290; spawnIn = 520; collected = 0; shake = 0; deadT = 0; time = 0; holding = false;
     updateHud();
@@ -253,12 +276,13 @@ body {
     reset();
     state = 'play';
     show(ui.menu, false); show(ui.over, false); show(ui.paused, false);
+    show(duckBtn, true);
     last = performance.now();
   }
 
   function pause() {
     if (state !== 'play') return;
-    state = 'pause'; holding = false;
+    state = 'pause'; holding = false; duckRelease();
     show(ui.paused, true);
   }
   function resume() {
@@ -275,6 +299,7 @@ body {
 
   function gameOver() {
     state = 'over';
+    show(duckBtn, false);
     const meters = Math.floor(dist / 40);
     const score = meters + collected * 10;
     const isBest = score > best;
@@ -300,6 +325,25 @@ body {
     tryJump();
   }
   function release() { holding = false; }
+
+  const duckBtn = $('duckBtn');
+  function setDuckBtn(on) { duckBtn.classList.toggle('on', on); }
+  function duckPress() {
+    if (state !== 'play' || duckHeld) return;
+    duckHeld = true; setDuckBtn(true);
+    holding = false;
+    if (!p.ground && p.vy < 700) p.vy = 700; // dive down fast
+    else if (p.ground) sfx.duck();
+  }
+  function duckRelease() { duckHeld = false; setDuckBtn(false); }
+
+  duckBtn.addEventListener('pointerdown', e => {
+    e.preventDefault(); e.stopPropagation();
+    try { duckBtn.setPointerCapture(e.pointerId); } catch (_) {}
+    duckPress();
+  });
+  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(t => duckBtn.addEventListener(t, duckRelease));
+  duckBtn.addEventListener('contextmenu', e => e.preventDefault());
 
   function tryJump() {
     if (p.ground || p.coyote > 0) {
@@ -335,12 +379,16 @@ body {
       e.preventDefault();
       if (e.repeat) return;
       press();
+    } else if (k === 'ArrowDown' || k === 'KeyS') {
+      e.preventDefault();
+      duckPress();
     } else if (k === 'KeyP' || k === 'Escape') {
       state === 'play' ? pause() : resume();
     }
   });
   window.addEventListener('keyup', e => {
     if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') release();
+    if (e.code === 'ArrowDown' || e.code === 'KeyS') duckRelease();
   });
 
   $('startBtn').addEventListener('click', start);
@@ -358,33 +406,38 @@ body {
     stump:    { w: 34, h: 42 },
     bigstump: { w: 40, h: 58 },
     batLow:   { w: 34, h: 20, fly: 14 },
-    batHigh:  { w: 34, h: 20, fly: 56 }
+    batHigh:  { w: 34, h: 20, fly: 56 },
+    web:      { w: 38, h: 0, ceil: 28 }
   };
 
   function spawn() {
     const m = dist / 40;
     let pool = ['stone', 'mushroom', 'stump'];
     if (m > 120) pool.push('bigstump', 'stump');
+    if (m > 60) pool.push('web');
+    if (m > 200) pool.push('web');
     if (m > 250) pool.push('batLow', 'batHigh');
     const type = pool[Math.floor(Math.random() * pool.length)];
     const d = TYPES[type];
     const x = W + 30;
-    obstacles.push({ type, x, w: d.w, h: d.h, fly: d.fly || 0, ph: Math.random() * 6 });
+    obstacles.push({ type, x, w: d.w, h: d.h, fly: d.fly || 0, ceil: d.ceil || 0, ph: Math.random() * 6 });
 
     // occasionally a close pair needing a long jump
     let extra = 0;
-    if (m > 180 && !d.fly && Math.random() < 0.22) {
+    if (m > 180 && !d.fly && !d.ceil && Math.random() < 0.22) {
       const t2 = Math.random() < .5 ? 'stone' : 'mushroom';
       const d2 = TYPES[t2];
-      obstacles.push({ type: t2, x: x + d.w + 26, w: d2.w, h: d2.h, fly: 0, ph: 0 });
+      obstacles.push({ type: t2, x: x + d.w + 26, w: d2.w, h: d2.h, fly: 0, ceil: 0, ph: 0 });
       extra = d2.w + 26;
     }
 
     // berries: arc over ground obstacles, or a line under a high bat
     if (Math.random() < 0.45) {
-      if (type === 'batHigh') {
+      if (type === 'web') {
+        for (let i = 0; i < 3; i++) berriesArr.push({ x: x - 6 + i * 22, y: GY - 12, t: Math.random() * 6 });
+      } else if (type === 'batHigh') {
         for (let i = 0; i < 3; i++) berriesArr.push({ x: x - 10 + i * 24, y: GY - 16, t: Math.random() * 6 });
-      } else if (!d.fly) {
+      } else if (!d.fly && !d.ceil) {
         const n = 3 + Math.floor(Math.random() * 3);
         const cx = x + (d.w + extra) / 2;
         for (let i = 0; i < n; i++) {
@@ -409,7 +462,7 @@ body {
 
       // player physics
       p.hold -= dt; p.buf -= dt; p.coyote -= dt;
-      const g = (holding && p.hold > 0 && p.vy < 0) ? G * 0.42 : G;
+      const g = duckHeld && !p.ground ? G * 1.8 : (holding && p.hold > 0 && p.vy < 0) ? G * 0.42 : G;
       p.vy += g * dt;
       p.y += p.vy * dt;
       if (p.y >= 0) {
@@ -420,19 +473,25 @@ body {
       } else if (p.ground) {
         p.ground = false; p.coyote = 0.08;
       }
+      const wasDuck = p.duck;
+      p.duck = duckHeld && p.ground;
+      if (p.duck && !wasDuck && time > 0.1) dust(4);
+      if (p.duck && Math.random() < dt * 25) particles.push({ x: PX - 8 + rnd(-4, 4), y: GY - 2, vx: rnd(-160, -60), vy: rnd(-70, -20), life: .3, t: 0, c: '#b9a27a', r: rnd(1, 2.2) });
 
       // collisions (forgiving hitbox)
       const px1 = PX - PW / 2 + 5, px2 = PX + PW / 2 - 5;
-      const py2 = GY + p.y - 3, py1 = GY + p.y - PH + 8;
+      const ph = p.duck ? PH_DUCK : PH;
+      const py2 = GY + p.y - 3, py1 = GY + p.y - ph + 8;
       for (const o of obstacles) {
         o.x -= speed * dt;
         const bottom = GY - o.fly + (o.fly ? Math.sin(time * 6 + o.ph) * 3 : 0);
-        const ox1 = o.x + 4, ox2 = o.x + o.w - 4, oy1 = bottom - o.h + 4, oy2 = bottom - 2;
+        const ox1 = o.x + 4, ox2 = o.x + o.w - 4;
+        const oy1 = o.ceil ? -1e4 : bottom - o.h + 4, oy2 = o.ceil ? GY - o.ceil - 2 : bottom - 2;
         if (px2 > ox1 && px1 < ox2 && py2 > oy1 && py1 < oy2) { die(); break; }
       }
       for (const b of berriesArr) {
         b.x -= speed * dt;
-        if (!b.got && Math.abs(b.x - PX) < 18 && Math.abs(b.y - (GY + p.y - PH / 2)) < 28) {
+        if (!b.got && Math.abs(b.x - PX) < 18 && Math.abs(b.y - (GY + p.y - ph / 2)) < 28) {
           b.got = true; collected++; sfx.berry();
           for (let i = 0; i < 7; i++) particles.push({ x: b.x, y: b.y, vx: rnd(-110, 110), vy: rnd(-140, 60), life: .45, t: 0, c: '#9fb6ff', r: rnd(1, 2.5) });
         }
@@ -610,6 +669,38 @@ body {
         ctx.fillStyle = '#3f7a4d';
         ctx.beginPath(); ctx.ellipse(x + 6, GY - h * .45, 6, 3.5, -0.6, 0, 7); ctx.fill();
       }
+    } else if (o.type === 'web') {
+      const bot = GY - o.ceil, cx = x + w / 2;
+      ctx.fillStyle = 'rgba(214, 222, 255, .13)';
+      ctx.fillRect(x, 0, w, bot);
+      ctx.strokeStyle = 'rgba(232, 236, 255, .6)'; ctx.lineWidth = 1;
+      for (let i = 0; i <= 4; i++) {
+        const sx = x + i * w / 4;
+        ctx.beginPath(); ctx.moveTo(sx, 0); ctx.lineTo(sx + Math.sin(time * 2 + i) * 1.5, bot); ctx.stroke();
+      }
+      for (let yy = bot; yy > 0; yy -= 13) {
+        ctx.beginPath(); ctx.moveTo(x, yy); ctx.quadraticCurveTo(cx, yy + 6, x + w, yy); ctx.stroke();
+      }
+      ctx.strokeStyle = 'rgba(232, 236, 255, .85)'; ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.moveTo(x - 1, bot); ctx.quadraticCurveTo(cx, bot + 7, x + w + 1, bot); ctx.stroke();
+      // hanging branch at the top
+      ctx.fillStyle = '#3a2a20';
+      ctx.fillRect(x - 24, 0, w + 48, 9);
+      ctx.fillStyle = '#2f5b3c';
+      for (let k = 0; k < 5; k++) { ctx.beginPath(); ctx.ellipse(x - 18 + k * (w + 36) / 4, 10, 8, 4, k % 2 ? .4 : -.4, 0, 7); ctx.fill(); }
+      // spider
+      const sy = bot - 16 + Math.sin(time * 3 + o.ph) * 3;
+      ctx.strokeStyle = '#120f1c'; ctx.lineWidth = 1.4;
+      for (let k = -1; k <= 1; k += 2) for (let j = 0; j < 4; j++) {
+        const a = (j - 1.5) * .45;
+        ctx.beginPath(); ctx.moveTo(cx, sy);
+        ctx.quadraticCurveTo(cx + k * 8, sy - 6 + j * 3, cx + k * 11, sy + Math.sin(a) * 9 + 3); ctx.stroke();
+      }
+      ctx.fillStyle = '#120f1c';
+      ctx.beginPath(); ctx.ellipse(cx, sy + 1, 5, 6, 0, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.arc(cx, sy - 6, 3.2, 0, 7); ctx.fill();
+      ctx.fillStyle = '#e2463a';
+      ctx.beginPath(); ctx.arc(cx - 1.3, sy - 6.5, .9, 0, 7); ctx.arc(cx + 1.3, sy - 6.5, .9, 0, 7); ctx.fill();
     } else {
       const bottom = GY - o.fly + Math.sin(time * 6 + o.ph) * 3;
       const cy = bottom - h / 2, cx = x + w / 2;
@@ -641,6 +732,7 @@ body {
       ctx.fillStyle = 'rgba(0,0,0,.25)';
       ctx.beginPath(); ctx.ellipse(0, GY - fy + 1, 12 * sh, 3 * sh, 0, 0, 7); ctx.fill();
     }
+    if (p.duck && !p.dead) ctx.scale(1.2, 0.55);
     const running = p.ground && (state === 'play' || state === 'menu');
     const ph = dist * 0.045;
     const l1 = running ? Math.sin(ph) * 6 : -3, l2 = running ? -Math.sin(ph) * 6 : 4;
